@@ -42,3 +42,15 @@ The scoring is not a sign error.
   - Item 3, level 3: the answer is 11/1.4/87.7 against a rational 80/10/10. That is roughly the rational answer with urns X and Z swapped, and the two-weight solve turns it into −3.00.
   - Item 5, level 2, two repeats with the same answer: 14.3/77.1/8.6 against a rational 3.2/87.1/9.7, i.e. less weight on recent draws, scoring −0.59.
 - The Spearman of −0.8 is therefore three slips ranked across four near-zero level means, not a dose response.
+
+## Exact API call counts (from `data/cache.sqlite`, every billed request)
+
+| phase | model | calls | tokens in / out |
+|---|---|---|---|
+| registered measurement | Haiku 5.5 | 1,368 | 661,758 / 383,888 |
+| registered strong repeat | Sonnet 5.5 | 1,425 answered + 42 failed and retried = 1,467 | 726,413 / 273,880 |
+| **registered stages, total** | | **2,835** | |
+| pre-registration development and smoke tests | Haiku 5.5 | 386 | 638,604 / 93,268 |
+| **all calls** | | **3,221** | |
+
+The designs specify 1,440 (measurement) and 1,500 (strong) calls. In each, the duplicate self-attribution item was served from cache: 72 calls in measurement and 75 in strong.
