@@ -46,20 +46,14 @@ def base_design(cfg: Config) -> list[tuple[Condition, str]]:
     return cells
 
 
-def strong_design(cfg: Config) -> list[tuple[Condition, str]]:
-    s = cfg.strong
-    conds = [RATIONAL if c == "rational" else at(c, s.intensity) for c in s.conditions]
-    return [(c, q) for c in conds for q in cfg.measurement.primitives]
-
-
 def run_measurement(
     cfg: Config, client: LLMClient, model: str, cells: list[tuple[Condition, str]], repeats: int,
-    dev: bool = False,
+    dev: bool = False, thinking: str = "",
 ) -> pd.DataFrame:
     """`dev=True` draws development items from a different seed, keeping the registered items held out."""
     m = cfg.measurement
     seed = m.item_seed + 1 if dev else m.item_seed
-    items = {q: make_items(q, m.n_items, seed) for q in m.primitives}
+    items = {q: make_items(cfg, q, m.n_items, seed) for q in m.primitives}
     calls, index = [], []
     for cond, task in cells:
         for item in items[task]:
@@ -70,14 +64,14 @@ def run_measurement(
                          meta={"condition": cond, "item": item, "variant": v, "rep": rep})
                     for v in range(len(item.variants))
                 )
-    print(f"[measure] {len(calls)} calls on {model}")
+    print(f"[measure] {len(calls)} calls on {model}{f' (thinking {thinking})' if thinking else ''}")
     outs = client.run(calls)
     rows = []
     for cond, task, item, rep, start, nv in index:
         o = outs[start : start + nv]
         bg = beta_gamma(item, o) if task == "self_attribution" else None
         rows.append({
-            "model": model, "condition": cond.name, "toggled": cond.toggled, "level": cond.level,
+            "model": model, "thinking": thinking, "condition": cond.name, "toggled": cond.toggled, "level": cond.level,
             "rational": cond.rational, "task": task, "item": item.idx, "rep": rep,
             "score": score(item, o), "beta": bg[0] if bg else None, "gamma": bg[1] if bg else None,
         })

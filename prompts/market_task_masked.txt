@@ -5,6 +5,6 @@ Your cash: {cash:.2f} points
 For each asset:
 {assets}
 
-Periodic reports reveal a noisy reading of each asset's underlying value per unit. Forecaster consensus and spread are public; your own forecaster's estimate is seen only by you.
+Periodic reports reveal a noisy reading of each asset's underlying value per unit, with a typical error of about ±{report_err}%; underlying value typically changes by about ±{drift}% per round. Forecaster consensus and spread are public; your own forecaster's estimate is seen only by you. Each typical error is one standard deviation.
 
 For each asset, report your estimate of its value per unit ("value") and your confidence in that estimate from 1 (very unsure) to 10 (certain) ("confidence").

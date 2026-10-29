@@ -142,40 +142,85 @@ def order_schema(symbols: list[str]) -> dict:
     return {"type": "object", "properties": {s: asset for s in symbols}, "required": symbols, "additionalProperties": False}
 
 
+def stated_errors(m: Market) -> dict[str, float]:
+    """Public precisions stated in every prompt, as typical (1 s.d.) errors in percent.
+
+    They describe the world `make_world` draws from, and define the Bayesian benchmark the
+    measurement vignettes are scored against.
+    """
+    f = m.fundamentals
+    loading_sq = 1 + 1 / 12  # E[l^2] for loadings ~ U(0.5, 1.5)
+    drift = np.sqrt(loading_sq * f.factor_vol**2 + f.idio_vol**2)
+    return {"report_err": 100 * f.earnings_noise, "drift": 100 * drift}
+
+
+def private_error(m: Market, signal_vol: float) -> float:
+    return 100 * signal_vol
+
+
+def consensus_error(m: Market, signal_vol: float) -> float:
+    # Shared error (variance signal_vol^2 / 2) plus the mean of n_agents idiosyncratic errors.
+    return 100 * signal_vol / np.sqrt(2) * np.sqrt(1 + 1 / m.n_agents)
+
+
+def confirmation(prev_value: float, before: float, after: float) -> str:
+    """Outcome of an estimate made against price `before`: confirmed if the next price moved toward it."""
+    toward = np.sign(prev_value - before) * np.sign(after - before)
+    return ("the price then moved toward it (confirmed)" if toward > 0 else
+            "the price then moved away from it (not confirmed)" if toward < 0 else
+            "the price then did not move relative to it (neither)")
+
+
+def asset_block(
+    masked: bool, name: str, prices: list[float], reports: list[tuple[int, float]], consensus: float,
+    consensus_err: float, dispersion: float, private: float, private_err: float,
+    prev: tuple[float, float, str] | None, holding: float,
+) -> str:
+    """One asset's lines, shared verbatim by the market prompt and the measurement vignettes.
+
+    `reports` are (round, value) oldest to newest; `prev` is (value, confidence, outcome text).
+    """
+    v = VOCAB[masked]
+    money = v["money"]
+    lines = [name, "  recent prices (oldest to newest): " + ", ".join(f"{money}{p:.2f}" for p in prices)]
+    if reports:
+        lines.append(f"  {v['report']}s (oldest to newest): "
+                     + "; ".join(f"round {r}: {money}{x:.2f}" for r, x in reports))
+    else:
+        lines.append(f"  no {v['report']} yet")
+    lines.append(f"  {v['consensus']}: {money}{consensus:.2f} (typical error ±{consensus_err:.1f}%); "
+                 f"{v['dispersion']}: ±{dispersion:.1f}%")
+    lines.append(f"  {v['private']}: {money}{private:.2f} (typical error ±{private_err:.1f}%)")
+    if prev is not None:
+        value, conf, outcome = prev
+        lines.append(f"  your previous value estimate: {money}{value:.2f} (confidence {conf:.0f}); {outcome}")
+    lines.append(f"  you hold {holding:.1f} {v['units']}")
+    return "\n".join(lines)
+
+
+def task_prompt(m: Market, masked: bool, t: int, cash: float, blocks: list[str]) -> str:
+    name = "market_task_masked" if masked else "market_task"
+    return template(name).format(round=t, n_rounds=m.n_rounds, cash=cash, assets="\n\n".join(blocks),
+                                 **{k: f"{x:.0f}" for k, x in stated_errors(m).items()})
+
+
 def round_prompt(
     m: Market, world: World, t: int, j: int, names: list[tuple[str, str]], masked: bool,
     prices: np.ndarray, holdings: np.ndarray, cash: float, prev_value: np.ndarray | None, prev_conf: np.ndarray | None,
 ) -> str:
-    v = VOCAB[masked]
-    money = v["money"]
-    reports = [r for r in world.report_rounds if r <= t]
+    reports = [r for r in world.report_rounds if r <= t][-m.reports_shown:]
     signal = np.exp(world.signal(t, j))
     blocks = []
     for i, (_, name) in enumerate(names):
-        hist = prices[max(0, t - m.price_window) : t, i]
-        lines = [f"{name}", f"  recent prices (oldest to newest): " + ", ".join(f"{money}{p:.2f}" for p in hist)]
-        if reports:
-            last = reports[-1]
-            line = f"  latest {v['report']} (round {last}): {money}{np.exp(world.report[last, i]):.2f}"
-            if len(reports) > 1:
-                prev = reports[-2]
-                line += f"; previous (round {prev}): {money}{np.exp(world.report[prev, i]):.2f}"
-            lines.append(line)
-        else:
-            lines.append(f"  no {v['report']} yet")
-        lines.append(f"  {v['consensus']}: {money}{np.exp(world.consensus[t, i]):.2f}; "
-                     f"{v['dispersion']}: ±{100 * world.dispersion[t, i]:.1f}%")
-        lines.append(f"  {v['private']}: {money}{signal[i]:.2f}")
+        prev = None
         if prev_value is not None and t >= 2:
             # Made in round t-1 against price p[t-2]; confirmed if the next price moved toward it.
-            before, after = prices[t - 2, i], prices[t - 1, i]
-            toward = np.sign(prev_value[i] - before) * np.sign(after - before)
-            outcome = ("the price then moved toward it (confirmed)" if toward > 0 else
-                       "the price then moved away from it (not confirmed)" if toward < 0 else
-                       "the price then did not move relative to it (neither)")
-            lines.append(f"  your previous value estimate: {money}{prev_value[i]:.2f} "
-                         f"(confidence {prev_conf[i]:.0f}); {outcome}")
-        lines.append(f"  you hold {holdings[i]:.1f} {v['units']}")
-        blocks.append("\n".join(lines))
-    name = "market_task_masked" if masked else "market_task"
-    return template(name).format(round=t, n_rounds=m.n_rounds, cash=cash, assets="\n\n".join(blocks))
+            prev = (prev_value[i], prev_conf[i], confirmation(prev_value[i], prices[t - 2, i], prices[t - 1, i]))
+        sv = world.signal_vol[t, i]
+        blocks.append(asset_block(
+            masked, name, list(prices[max(0, t - m.price_window) : t, i]),
+            [(r, float(np.exp(world.report[r, i]))) for r in reports],
+            float(np.exp(world.consensus[t, i])), consensus_error(m, sv), 100 * world.dispersion[t, i],
+            float(signal[i]), private_error(m, sv), prev, holdings[i],
+        ))
+    return task_prompt(m, masked, t, cash, blocks)

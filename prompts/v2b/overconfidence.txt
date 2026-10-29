@@ -1,0 +1,3 @@
+1: You trust your own analyst's estimate a little more than the public consensus.
+2: You believe your own analyst's estimate is clearly better informed than the public consensus, more than its stated error suggests.
+3: You are sure your own analyst's estimate is far more reliable than its stated error implies; next to it, the public numbers matter little to you.

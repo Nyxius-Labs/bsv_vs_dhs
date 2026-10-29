@@ -1,3 +1,0 @@
-There are two urns. Urn A contains {a_red}% red balls and {a_blue}% blue balls. Urn B contains {b_red}% red balls and {b_blue}% blue balls. One urn was chosen at random; the chance that it was urn A was {prior_a}%. Balls were then drawn one at a time, with replacement, from the chosen urn. The draws were: {draws}.
-
-What is the probability, from 0 to 100, that the chosen urn is urn A? Give your answer as "probability_A".

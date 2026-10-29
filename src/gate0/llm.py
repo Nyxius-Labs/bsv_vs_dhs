@@ -1,6 +1,6 @@
 """Claude client with an on-disk response cache and Message Batches support.
 
-Every request is keyed by a hash of (model, system, user, schema, effort, max_tokens, nonce).
+Every request is keyed by a hash of (model, system, user, schema, effort, max_tokens, thinking, nonce).
 The nonce is never sent; it distinguishes deliberate repeats of an identical prompt.
 Modes: "batch" (Message Batches API, 50% cost), "live" (concurrent messages.create),
 "offline" (cache only; a miss raises).
@@ -38,11 +38,11 @@ class Call:
     nonce: str = ""
     meta: dict | None = field(default=None, compare=False, hash=False)  # never sent or hashed
 
-    def key(self, effort: str, max_tokens: int) -> str:
-        blob = json.dumps(
-            [self.model, self.system, self.user, self.schema, effort, max_tokens, self.nonce],
-            sort_keys=True,
-        )
+    def key(self, effort: str, max_tokens: int, thinking: str = "adaptive") -> str:
+        parts = [self.model, self.system, self.user, self.schema, effort, max_tokens, self.nonce]
+        if thinking != "adaptive":  # keeps keys of adaptive-thinking calls as they were in v1
+            parts.append(f"thinking={thinking}")
+        blob = json.dumps(parts, sort_keys=True)
         return hashlib.sha256(blob.encode()).hexdigest()
 
 
@@ -58,10 +58,15 @@ class Stats:
 
 
 class LLMClient:
-    def __init__(self, cache_path: Path, mode: str = "batch", effort: str = "low", max_tokens: int = 2048):
+    def __init__(self, cache_path: Path, mode: str = "batch", effort: str = "low", max_tokens: int = 2048,
+                 thinking: str = "adaptive", thinking_off: dict[str, str] | None = None):
         if mode not in ("batch", "live", "offline"):
             raise ValueError(f"unknown mode {mode}")
+        if thinking not in ("adaptive", "off"):
+            raise ValueError(f"unknown thinking setting {thinking}")
         self.mode, self.effort, self.max_tokens = mode, effort, max_tokens
+        # "off" has a model-specific API form (Haiku 5.5: disabled; Sonnet 5.5: between_tools).
+        self.thinking, self.thinking_off = thinking, thinking_off or {}
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         if mode != "offline":
             # One spending process at a time: two would collect and delete each other's batches.
@@ -93,6 +98,14 @@ class LLMClient:
 
     # ---- public -------------------------------------------------------------------------
 
+    def close(self) -> None:
+        """Commit, close the cache and release the spending lock."""
+        self.db.commit()
+        self.db.close()
+        if getattr(self, "_lockfile", None):
+            self._lockfile.close()
+            self._lockfile = None
+
     def run(self, calls: list[Call]) -> list[dict | None]:
         """Return parsed JSON outputs aligned with `calls`; None where every attempt failed.
 
@@ -113,13 +126,13 @@ class LLMClient:
         self.stats.failures += len(todo)
         return out
 
-    def usage_by_model(self) -> dict[str, tuple[int, int]]:
-        """Billed tokens per model across the whole cache (successes and failures, all runs)."""
-        q = """SELECT model, SUM(i), SUM(o) FROM (
-                   SELECT model, input_tokens i, output_tokens o FROM responses
-                   UNION ALL SELECT model, input_tokens, output_tokens FROM failures)
-               GROUP BY model"""
-        return {m: (int(i or 0), int(o or 0)) for m, i, o in self.db.execute(q) if m}
+    def usage_by_model(self, since: float = 0.0) -> dict[str, tuple[int, int, int]]:
+        """(calls, input tokens, output tokens) billed per model since a time (successes and failures)."""
+        q = """SELECT model, COUNT(*), SUM(i), SUM(o) FROM (
+                   SELECT model, input_tokens i, output_tokens o, created FROM responses
+                   UNION ALL SELECT model, input_tokens, output_tokens, created FROM failures)
+               WHERE created >= ? GROUP BY model"""
+        return {m: (int(n), int(i or 0), int(o or 0)) for m, n, i, o in self.db.execute(q, (since,)) if m}
 
     # ---- internals ----------------------------------------------------------------------
 
@@ -129,7 +142,7 @@ class LLMClient:
         return Call(call.model, call.system, call.user, call.schema, f"{call.nonce}|retry{attempt}")
 
     def _resolve(self, calls: list[Call]) -> list[dict | None]:
-        keys = [c.key(self.effort, self.max_tokens) for c in calls]
+        keys = [c.key(self.effort, self.max_tokens, self.thinking) for c in calls]
         cached = self._lookup(keys)
         missing = {k: c for k, c in zip(keys, calls) if k not in cached}
         self.stats.cache_hits += len(calls) - len(missing)
@@ -153,7 +166,7 @@ class LLMClient:
         return found
 
     def _params(self, call: Call) -> dict:
-        return {
+        params = {
             "model": call.model,
             "max_tokens": self.max_tokens,
             "system": call.system,
@@ -163,6 +176,11 @@ class LLMClient:
                 "format": {"type": "json_schema", "schema": call.schema},
             },
         }
+        if self.thinking == "off":
+            if call.model not in self.thinking_off:
+                raise ValueError(f"no registered 'thinking off' form for {call.model}")
+            params["thinking"] = {"type": self.thinking_off[call.model]}
+        return params
 
     def _store(self, key: str, model: str, message, error: str | None = None) -> None:
         output, raw = None, None

@@ -1,4 +1,0 @@
-Below are {n} independent draws from the same fixed but unknown process:
-{values}
-
-Give a 90% prediction interval for the next draw from this process: a range you are 90% sure will contain it. Give the bounds as "lower" and "upper".

@@ -5,6 +5,6 @@ Your cash: ${cash:.2f}
 For each stock:
 {assets}
 
-Quarterly earnings reports reveal a noisy reading of each company's fundamental value per share. Analyst consensus and dispersion are public; your analyst's private estimate is seen only by you.
+Quarterly earnings reports reveal a noisy reading of each company's fundamental value per share, with a typical error of about ±{report_err}%; fundamental value typically changes by about ±{drift}% per round. Analyst consensus and dispersion are public; your analyst's private estimate is seen only by you. Each typical error is one standard deviation.
 
 For each stock, report your estimate of its value per share ("value") and your confidence in that estimate from 1 (very unsure) to 10 (certain) ("confidence").

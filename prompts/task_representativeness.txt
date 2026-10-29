@@ -1,5 +1,0 @@
-There are three urns, each equally likely to have been chosen.
-{urns}
-Balls were drawn one at a time, with replacement, from the chosen urn. In order, the draws were: {draws}.
-
-What is the probability, from 0 to 100, that each urn is the chosen one? The three numbers should sum to 100. Give them as "{l0}", "{l1}" and "{l2}".

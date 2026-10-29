@@ -62,3 +62,17 @@ def test_theories_are_gated_on_their_own_moments():
     v = verdicts(CFG, ALL_PASS, ms)
     assert v["theories"]["dhs"]["advances"] and not v["theories"]["bsv"]["advances"]
     assert set(v["theories"]["bsv"]["moments"]) == set(CFG.gate.gate_moments["bsv"])
+
+
+def test_market_model_rule():
+    from gate0.gate import market_model
+    haiku, sonnet = CFG.models.candidates
+    passing = lambda *ps: {p: {"passed": p in ps} for p in CFG.measurement.primitives}  # noqa: E731
+    # More theories with both primitives passing wins, even with fewer primitives overall.
+    a = {haiku: passing("conservatism", "representativeness"),
+         sonnet: passing("conservatism", "overconfidence", "self_attribution")}
+    a[sonnet]["representativeness"]["passed"] = False
+    assert market_model(CFG, a) == sonnet  # sonnet: DHS complete (1 theory), 3 primitives; haiku: BSV (1), 2
+    # Ties on theories and primitives go to candidate order.
+    assert market_model(CFG, {haiku: passing("conservatism"), sonnet: passing("overconfidence")}) == haiku
+    assert market_model(CFG, {haiku: passing(), sonnet: passing("overconfidence")}) == sonnet

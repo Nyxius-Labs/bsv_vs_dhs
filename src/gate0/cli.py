@@ -1,4 +1,4 @@
-"""gate0 register | measure | market | freeze | strong | report"""
+"""gate0 register | measure | market | freeze | report"""
 
 from __future__ import annotations
 
@@ -11,12 +11,12 @@ import typer
 from dotenv import load_dotenv
 
 from gate0 import moments as M
-from gate0.config import DATA_DIR, LOCK_PATH, check_lock, load_config, write_lock
-from gate0.gate import leading_arm, report as render_report
+from gate0.config import DATA_DIR, LOCK_PATH, REGISTERED_DIR, check_lock, load_config, registered_at, write_lock
+from gate0.gate import leading_arm, market_model, report as render_report
 from gate0.llm import LLMClient
 from gate0.market.simulate import build_runs, simulate
 from gate0.measure.checks import analyze
-from gate0.measure.run import base_design, run_measurement, strong_design
+from gate0.measure.run import base_design, run_measurement
 from gate0.measure.synthetic import SyntheticClient, clean_params
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -30,11 +30,12 @@ def _setup(dev: bool) -> tuple[str, Path]:
     load_dotenv()
     if dev:
         return "unregistered", DATA_DIR / "dev"
-    return check_lock(), DATA_DIR / "registered"
+    return check_lock(), REGISTERED_DIR
 
 
-def _client(cfg, mode: str) -> LLMClient:
-    return LLMClient(DATA_DIR / "cache.sqlite", mode, cfg.models.effort, cfg.models.max_tokens)
+def _client(cfg, mode: str, thinking: str) -> LLMClient:
+    return LLMClient(DATA_DIR / "cache.sqlite", mode, cfg.models.effort, cfg.models.max_tokens,
+                     thinking, cfg.models.thinking_off)
 
 
 def _done(client) -> None:
@@ -43,6 +44,7 @@ def _done(client) -> None:
     s = client.stats
     typer.echo(f"cache hits {s.cache_hits}, new calls {s.new_calls}, failures {s.failures} {s.errors or ''}, "
                f"tokens in/out {s.input_tokens:,}/{s.output_tokens:,}")
+    client.close()
 
 
 def _csv(s: str | None, cast=str):
@@ -50,10 +52,10 @@ def _csv(s: str | None, cast=str):
 
 
 @app.command()
-def register(force: bool = typer.Option(False, help="Overwrite an existing registration.lock.")):
-    """Hash config, prompts, model IDs and the gate0 source into registration.lock."""
+def register(force: bool = typer.Option(False, help="Overwrite an existing lock.")):
+    """Hash config, prompts, model IDs and the gate0 source into the registration lock."""
     if LOCK_PATH.exists() and not force:
-        raise typer.BadParameter("registration.lock exists; re-registering changes the pre-registered object (use --force)")
+        raise typer.BadParameter(f"{LOCK_PATH.name} exists; re-registering changes the pre-registered object (use --force)")
     h = write_lock()
     typer.echo(f"registered {h['registration']}")
 
@@ -63,28 +65,27 @@ def measure(
     mode: str = Mode, dev: bool = Dev, synthetic: bool = Synthetic,
     items: int = typer.Option(None, help="Override items per task (smoke runs; implies --dev)."),
     repeats: int = typer.Option(None, help="Override repeats (smoke runs; implies --dev)."),
+    models: str = typer.Option(None, help="Comma-separated subset of candidate models (implies --dev)."),
+    control: bool = typer.Option(True, help="Also run the descriptive thinking-on control grid."),
 ):
-    """Measurement stage on the base model: intensity grid, toggles, rational arm, then the checks."""
+    """Measurement stage on every candidate model: intensity grid, toggles, rational arm, then the checks.
+    Runs the registered thinking setting, then the descriptive control setting."""
     cfg = load_config()
-    dev = dev or synthetic or bool(items or repeats)
+    dev = dev or synthetic or bool(items or repeats or models) or not control
     cfg.measurement.n_items = items or cfg.measurement.n_items
     _, out = _setup(dev)
-    client = SyntheticClient(clean_params()) if synthetic else _client(cfg, mode)
-    df = run_measurement(cfg, client, cfg.models.base, base_design(cfg), repeats or cfg.measurement.repeats, dev)
-    _save_measurement(cfg, df, out / "measure" / "base")
-    _done(client)
+    model_list = _csv(models) or cfg.models.candidates
+    settings = [cfg.models.thinking] + ([cfg.models.control_thinking] if control else [])
+    for thinking in settings:
+        client = SyntheticClient(clean_params()) if synthetic else _client(cfg, mode, thinking)
+        for model in model_list:
+            df = run_measurement(cfg, client, model, base_design(cfg), repeats or cfg.measurement.repeats, dev, thinking)
+            _save_measurement(cfg, df, _measure_dir(out, model, thinking))
+        _done(client)
 
 
-@app.command()
-def strong(mode: str = Mode, dev: bool = Dev, synthetic: bool = Synthetic):
-    """Stronger-model repeat of the max-intensity and rational conditions."""
-    cfg, (_, out) = load_config(), _setup(dev or synthetic)
-    client = SyntheticClient(clean_params(0.3), seed=1) if synthetic else _client(cfg, mode)
-    df = run_measurement(cfg, client, cfg.models.strong, strong_design(cfg), cfg.strong.repeats, dev or synthetic)
-    d = out / "measure" / "strong"
-    d.mkdir(parents=True, exist_ok=True)
-    df.to_csv(d / "scores.csv", index=False)
-    _done(client)
+def _measure_dir(out: Path, model: str, thinking: str) -> Path:
+    return out / "measure" / model / f"thinking-{thinking}"
 
 
 def _save_measurement(cfg, df: pd.DataFrame, d: Path) -> None:
@@ -118,14 +119,13 @@ def market(
     registered = set(cfg.market.seeds) | set(cfg.freeze.seeds)
     if dev and agent == "llm" and registered & set(seed_list):
         raise typer.BadParameter("dev LLM runs must not use registered seeds")
-    measurement = None if agent == "rule" else _load_analysis(out)
-    model = cfg.models.base
+    model, measurement = _market_model(cfg, out, agent)
     runs = build_runs(cfg, arm_list, seed_list, False, agent, model, measurement)
     if not no_masked:
         masked_arms = [a for a in cfg.market.masked_arms if a in arm_list]
         masked = [s for s in seed_list if s in cfg.market.masked_seeds]
         runs += build_runs(cfg, masked_arms, masked, True, agent, model, measurement)
-    client = _client(cfg, mode) if agent == "llm" else None
+    client = _client(cfg, mode, cfg.models.thinking) if agent == "llm" else None
     d = out / "market" / agent
     results = simulate(runs, client, d / "runs")
     _write_moments(cfg, results, d)
@@ -144,11 +144,27 @@ def _write_moments(cfg, results: list[dict], d: Path) -> None:
                .mean().round(3).to_string())
 
 
-def _load_analysis(out: Path) -> dict:
-    p = out / "measure" / "base" / "analysis.json"
-    if not p.exists():
-        raise typer.BadParameter(f"{p} missing; run `gate0 measure` first")
-    return json.loads(p.read_text())
+def _load_analyses(cfg, out: Path, thinking: str | None = None) -> dict[tuple[str, str], dict]:
+    """(model, thinking) -> analysis, for every measurement that has run."""
+    found = {}
+    for model in cfg.models.candidates:
+        for t in [thinking] if thinking else [cfg.models.thinking, cfg.models.control_thinking]:
+            p = _measure_dir(out, model, t) / "analysis.json"
+            if p.exists():
+                found[(model, t)] = json.loads(p.read_text())
+    return found
+
+
+def _market_model(cfg, out: Path, agent: str) -> tuple[str, dict | None]:
+    """The market model by the registered rule, and its measurement (for seating)."""
+    if agent == "rule":
+        return cfg.models.candidates[0], None
+    analyses = {m: a for (m, _), a in _load_analyses(cfg, out, cfg.models.thinking).items()}
+    if not analyses:
+        raise typer.BadParameter(f"no measurement under {out / 'measure'}; run `gate0 measure` first")
+    model = market_model(cfg, analyses)
+    typer.echo(f"market model: {model} (thinking {cfg.models.thinking})")
+    return model, analyses[model]
 
 
 def _load_moments(out: Path, agent: str = "llm") -> list[dict] | None:
@@ -164,19 +180,19 @@ def freeze(mode: str = Mode, dev: bool = Dev, agent: str = typer.Option("llm")):
     moments = _load_moments(out, agent)
     if not moments:
         raise typer.BadParameter("no market results; run `gate0 market` first")
-    measurement = None if agent == "rule" else _load_analysis(out)
+    model, measurement = _market_model(cfg, out, agent)
     arm = leading_arm(cfg, measurement, moments)
     # Dev LLM runs never touch the held-out freeze seeds (rule agents make no calls and see nothing).
     seeds = [998] if dev and agent == "llm" else cfg.freeze.seeds
-    frozen = {"arm": arm, "registration": registration,
+    frozen = {"arm": arm, "model": model, "registration": registration,
               "measurement_hash": hashlib.sha256(json.dumps(measurement, sort_keys=True).encode()).hexdigest()}
     frozen["hash"] = hashlib.sha256(json.dumps(frozen, sort_keys=True).encode()).hexdigest()
     d = out / "freeze" / agent
     d.mkdir(parents=True, exist_ok=True)
     (d / "frozen.json").write_text(json.dumps(frozen, indent=2))
     typer.echo(f"frozen {arm} ({frozen['hash'][:16]})")
-    runs = build_runs(cfg, [arm, *cfg.freeze.arms], seeds, False, agent, cfg.models.base, measurement)
-    client = _client(cfg, mode) if agent == "llm" else None
+    runs = build_runs(cfg, [arm, *cfg.freeze.arms], seeds, False, agent, model, measurement)
+    client = _client(cfg, mode, cfg.models.thinking) if agent == "llm" else None
     results = simulate(runs, client, d / "runs")
     _write_moments(cfg, results, d)
     if client:
@@ -185,21 +201,24 @@ def freeze(mode: str = Mode, dev: bool = Dev, agent: str = typer.Option("llm")):
 
 @app.command()
 def report(dev: bool = Dev, agent: str = typer.Option("llm")):
-    """Write data/<registered|dev>/report.md from whatever stages have run."""
+    """Write data/<registered_v2|dev>/report.md from whatever stages have run."""
     cfg = load_config()
     registration, out = _setup(dev)
-    analysis = _load_analysis(out)
+    analyses = _load_analyses(cfg, out)
+    if not analyses:
+        raise typer.BadParameter(f"no measurement under {out / 'measure'}; run `gate0 measure` first")
+    registered = {m: a for (m, t), a in analyses.items() if t == cfg.models.thinking}
+    chosen = market_model(cfg, registered) if registered else None
     moments = _load_moments(out, agent)
     fz = out / "freeze" / agent
     freeze_data = None
     if (fz / "frozen.json").exists() and (fz / "moments.json").exists():
         freeze_data = json.loads((fz / "frozen.json").read_text())
         freeze_data["moments"] = json.loads((fz / "moments.json").read_text())
-    strong_p, base_p = out / "measure" / "strong" / "scores.csv", out / "measure" / "base" / "scores.csv"
-    strong_df = pd.read_csv(strong_p) if strong_p.exists() else None
-    base_df = pd.read_csv(base_p)
-    usage = _client(cfg, "offline").usage_by_model()
-    text = render_report(cfg, registration, analysis, moments, freeze_data, strong_df, base_df, usage)
+    client = LLMClient(DATA_DIR / "cache.sqlite", "offline")
+    usage = client.usage_by_model(since=0.0 if dev else registered_at())
+    client.close()
+    text = render_report(cfg, registration, analyses, chosen, moments, freeze_data, usage)
     (out / "report.md").write_text(text)
     typer.echo(f"wrote {out / 'report.md'}")
 

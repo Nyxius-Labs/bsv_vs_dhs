@@ -116,3 +116,18 @@ def test_second_spending_process_is_refused(tmp_path):
         L.LLMClient(tmp_path / "cache.sqlite", "live")
     L.LLMClient(tmp_path / "cache.sqlite", "offline")  # read-only use is fine
     del a
+
+
+def test_thinking_off_is_sent_per_model_and_keyed(tmp_path, monkeypatch):
+    monkeypatch.setattr(L, "RETRIES", 0)
+    sent = []
+    fake = NS(messages=NS(create=lambda **kw: sent.append(kw) or _msg()))
+    off = {"haiku": "disabled", "sonnet": "between_tools"}
+    c = L.LLMClient(tmp_path / "cache.sqlite", "live", thinking="off", thinking_off=off)
+    c._client = fake
+    c.run([L.Call("haiku", "s", "q", SCHEMA), L.Call("sonnet", "s", "q", SCHEMA)])
+    assert sorted(kw["thinking"]["type"] for kw in sent) == ["between_tools", "disabled"]
+    call = L.Call("haiku", "s", "q", SCHEMA)
+    assert call.key("low", 10, "off") != call.key("low", 10, "adaptive") == call.key("low", 10)
+    with pytest.raises(ValueError):
+        c._params(L.Call("unknown-model", "s", "q", SCHEMA))

@@ -1,90 +1,85 @@
-"""Item-level bias scores. Each is oriented so the rational answer scores 0 and the bias scores > 0."""
+"""Item-level bias scores from paired vignette variants. Rational answers score 0; the bias scores > 0.
+
+A slope is the change in the stated log value per unit change in one input's log value, from a
++delta / -delta pair of variants. Rational slopes are the benchmark weights in `item.truth["w"]`.
+"""
 
 from __future__ import annotations
 
 import numpy as np
-from scipy.special import logit
 
 from gate0.measure.items import Item
 
-EPS = 0.01
+
+def _log_value(item: Item, out: dict) -> float:
+    v = float(out[item.truth["symbol"]]["value"])
+    if not v > 0:
+        raise ValueError("non-positive value")
+    return float(np.log(v))
 
 
-def _prob(x: float) -> float:
-    """Percent -> probability. A value strictly between 0 and 1 is read as already a fraction
-    (a stated 0.66% where 66% was meant); the schema asks for 0-100, so this is rare."""
-    x = float(x)
-    p = x if 0 < x < 1 else x / 100.0
-    return float(np.clip(p, EPS, 1 - EPS))
+def _slope(item: Item, lv: list[float], i: int) -> float:
+    """Slope from variants i (+delta) and i+1 (-delta)."""
+    return (lv[i] - lv[i + 1]) / (2 * item.truth["delta"])
 
 
 def score(item: Item, outs: list[dict | None]) -> float | None:
     """Score one item from its per-variant outputs (aligned with `item.variants`)."""
     if any(o is None for o in outs):
         return None
-    out = outs if item.task == "self_attribution" else outs[0]
     try:
+        lv = [_log_value(item, o) for o in outs]
         return {
             "conservatism": _conservatism,
             "representativeness": _representativeness,
             "overconfidence": _overconfidence,
             "self_attribution": _self_attribution,
-        }[item.task](item, out)
+        }[item.task](item, lv)
     except (KeyError, TypeError, ValueError, ZeroDivisionError):
         return None
 
 
-def _conservatism(item: Item, out: dict) -> float:
-    """1 - w, where w is the weight on the likelihood ratio (Grether-style)."""
-    t = item.truth
-    w = (logit(_prob(out["probability_A"])) - t["prior_logodds"]) / t["evidence"]
-    return float(1 - w)
+def _conservatism(item: Item, lv: list[float]) -> float:
+    """Underreaction to the newest report plus overreaction to the previous one, in weight units:
+    (w_new - s_new) + (s_old - w_old). Uniform underreaction and anchoring on older news both score > 0."""
+    w = item.truth["w"]
+    return float((w["r0"] - _slope(item, lv, 0)) + (_slope(item, lv, 2) - w["r1"]))
 
 
-def _representativeness(item: Item, out: dict) -> float:
-    """Weight on the last three draws minus weight on the earlier draws.
-
-    The two independent log-ratios of the stated probabilities are solved exactly for
-    log(p_u / p_ref) = w_early * d_early + w_recent * d_recent. A rational answer has both weights
-    at 1. Uniform shrinkage toward the prior (conservatism, or ignoring the evidence) lowers both
-    equally, so it scores 0; only overweighting what rose most recently scores > 0.
-    """
-    total = sum(float(out[k]) for k in ("X", "Y", "Z"))
-    if total <= 0:
-        return None
-    p = np.clip([float(out[k]) / total for k in ("X", "Y", "Z")], EPS, 1)
-    t = item.truth
-    ref = ("X", "Y", "Z").index(t["target"])
-    others = [u for u in range(3) if u != ref]
-    X = np.array([[t["early"][u] - t["early"][ref], t["gain"][u] - t["gain"][ref]] for u in others])
-    y = np.array([np.log(p[u] / p[ref]) for u in others])
-    w_early, w_recent = np.linalg.solve(X, y)
-    return float(w_recent - w_early)
+def _representativeness(item: Item, lv: list[float]) -> float:
+    """Extrapolation of a report streak: (streak - swapped) value beyond the rational difference,
+    in the streak's direction, per unit of the streak's span."""
+    t, w = item.truth, item.truth["w"]
+    a, b = item.variants[0]["obs"], item.variants[1]["obs"]
+    rational = sum(w[s] * (a[s] - b[s]) for s in ("r2", "r1"))
+    return float(t["direction"] * ((lv[0] - lv[1]) - rational) / t["span"])
 
 
-def _overconfidence(item: Item, out: dict) -> float:
-    """log(rational width / stated width): overprecision > 0."""
-    width = float(out["upper"]) - float(out["lower"])
-    if width <= 0:
-        return None
-    return float(np.log(item.truth["rational_width"] / width))
+def _overconfidence(item: Item, lv: list[float]) -> float:
+    """Weight on the private estimate relative to its rational weight, minus the same for the
+    consensus (DHS overconfidence: private information overweighted relative to public)."""
+    w = item.truth["w"]
+    return float(_slope(item, lv, 0) / w["p"] - _slope(item, lv, 2) / w["c"])
 
 
-def _self_attribution(item: Item, outs: list[dict]) -> float:
-    """(beta - beta_rational) - (gamma - gamma_rational), in log-odds of stated forecast accuracy.
+def _self_attribution(item: Item, lv: list[float]) -> float:
+    """beta - gamma: rise in the private-estimate weight after a confirmation minus its fall after a
+    contradiction, both from the agent's own no-feedback weight, in units of the rational weight."""
+    beta, gamma = _beta_gamma(item, lv)
+    return beta - gamma
 
-    beta = rise from the agent's own baseline after a hit, gamma = fall after a miss. Measuring both
-    from the agent's own baseline cancels any level shift (e.g. overconfidence).
-    """
-    base, hit, miss = (logit(_prob(o["probability_correct"])) for o in outs)
-    r_base, r_hit, r_miss = (logit(r) for r in item.truth["rational"])
-    beta, gamma = hit - base, base - miss
-    return float((beta - (r_hit - r_base)) - (gamma - (r_base - r_miss)))
+
+def _beta_gamma(item: Item, lv: list[float]) -> tuple[float, float]:
+    s = {item.variants[i]["feedback"]: _slope(item, lv, i) for i in range(0, len(lv), 2)}
+    wp = item.truth["w"]["p"]
+    return (s["confirmed"] - s["neither"]) / wp, (s["neither"] - s["not confirmed"]) / wp
 
 
 def beta_gamma(item: Item, outs: list[dict | None]) -> tuple[float, float] | None:
     """Raw (beta, gamma) for one self-attribution item; DHS requires beta > gamma."""
     if any(o is None for o in outs):
         return None
-    base, hit, miss = (logit(_prob(o["probability_correct"])) for o in outs)
-    return float(hit - base), float(base - miss)
+    try:
+        return _beta_gamma(item, [_log_value(item, o) for o in outs])
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        return None

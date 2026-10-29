@@ -1,3 +1,0 @@
-You run your own research process that forecasts whether a stock will rise or fall over the next month. Before the forecast described below, you had made {n} forecasts, of which {k} turned out to be correct. {latest}
-
-What is the probability, from 0 to 100, that {target} will be correct? Give your answer as "probability_correct".

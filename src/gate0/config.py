@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -11,17 +12,23 @@ import yaml
 from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parents[2]
-CONFIG_PATH = ROOT / "configs" / "registration.yaml"
+# v2 is the active registration. v1 (configs/registration.yaml, registration.lock) is a record only:
+# it is reproducible from the tags gate0-registered and gate0-v1-result, not from this code.
+CONFIG_PATH = ROOT / "configs" / "registration_v2.yaml"
 PROMPTS_DIR = ROOT / "prompts"
-LOCK_PATH = ROOT / "registration.lock"
+LOCK_PATH = ROOT / "registration_v2.lock"
 DATA_DIR = ROOT / "data"
+REGISTERED_DIR = DATA_DIR / "registered_v2"
 
 
 class Models(BaseModel):
-    base: str
-    strong: str
+    candidates: list[str]           # also the tie-break order of the market-model rule
+    thinking: Literal["off", "adaptive"]
+    control_thinking: Literal["off", "adaptive"]
+    thinking_off: dict[str, str]    # API form of "off" per model
     effort: str
     max_tokens: int
+    market_model_rule: Literal["most_theories_then_primitives_then_order"]
 
 
 class Thresholds(BaseModel):
@@ -37,6 +44,7 @@ class Measurement(BaseModel):
     n_items: int
     repeats: int
     item_seed: int
+    shift: float
     thresholds: Thresholds
 
 
@@ -62,6 +70,7 @@ class Market(BaseModel):
     masked_seeds: list[int]
     announcement_every: int
     price_window: int
+    reports_shown: int
     initial_cash: float
     initial_shares: int
     demand_scale: float
@@ -98,13 +107,8 @@ class Freeze(BaseModel):
     anomaly: str
 
 
-class Strong(BaseModel):
-    conditions: list[str]
-    intensity: int
-    repeats: int
-
-
 class Config(BaseModel):
+    registration: str
     models: Models
     measurement: Measurement
     theories: dict[str, list[str]]
@@ -112,7 +116,6 @@ class Config(BaseModel):
     moments: Moments
     gate: Gate
     freeze: Freeze
-    strong: Strong
 
 
 def load_config(path: Path = CONFIG_PATH) -> Config:
@@ -136,8 +139,13 @@ def registration_hashes(config_path: Path = CONFIG_PATH, prompts_dir: Path = PRO
 
 def write_lock(path: Path = LOCK_PATH) -> dict[str, str]:
     hashes = registration_hashes()
-    path.write_text(json.dumps(hashes, indent=2, sort_keys=True) + "\n")
+    # When registered; not hashed. Lets the report count only calls made under this registration.
+    path.write_text(json.dumps({**hashes, "registered_at": time.time()}, indent=2, sort_keys=True) + "\n")
     return hashes
+
+
+def registered_at(path: Path = LOCK_PATH) -> float:
+    return float(json.loads(path.read_text()).get("registered_at", 0.0)) if path.exists() else 0.0
 
 
 def check_lock(path: Path = LOCK_PATH) -> str:
@@ -145,6 +153,7 @@ def check_lock(path: Path = LOCK_PATH) -> str:
     if not path.exists():
         raise RuntimeError("No registration.lock; run `gate0 register` first (or pass --dev).")
     locked = json.loads(path.read_text())
+    locked.pop("registered_at", None)
     current = registration_hashes()
     drift = sorted(k for k in locked.keys() | current.keys() if locked.get(k) != current.get(k))
     if drift:

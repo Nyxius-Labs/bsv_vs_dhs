@@ -135,27 +135,60 @@ def _seating(moments: list[dict]):
     return [(arm, p, levels, rec) for (arm, p), (levels, rec) in sorted(pooled.items())]
 
 
-def report(cfg: Config, registration: str, analysis: dict, moments: list[dict] | None,
-           freeze: dict | None, strong: pd.DataFrame | None, base: pd.DataFrame | None, usage: dict) -> str:
-    th = cfg.measurement.thresholds
-    L = ["# Gate 0 report", "", f"Registration: `{registration}`", ""]
+def market_model(cfg: Config, analyses: dict[str, dict]) -> str:
+    """The registered market-model rule, over analyses measured at the registered thinking setting:
+    most theories with every primitive passing, then most primitives passing, then candidate order."""
+    order = cfg.models.candidates
 
-    L += ["## Measurement stage", "",
-          f"Thresholds: Spearman ≥ {th.monotonic_spearman}, max cross-loading < {th.max_cross_loading}, "
-          f"rational {1 - th.rational_null_alpha:.0%} CI covers 0.", "",
-          "| primitive | monotonic (ρ) | near-diagonal (max) | rational null (mean [CI]) | own effect (SD) | level means | verdict |",
-          "|---|---|---|---|---|---|---|"]
+    def key(model: str) -> tuple:
+        passed = {p for p, r in analyses[model].items() if r["passed"]}
+        theories = sum(all(p in passed for p in prims) for prims in cfg.theories.values())
+        return theories, len(passed), -order.index(model) if model in order else -len(order)
+
+    return max(analyses, key=key)
+
+
+def _measurement_table(analysis: dict) -> list[str]:
+    L = ["| primitive | monotonic (ρ) | near-diagonal (max) | rational null (mean [CI], ±margin) | own effect (SD) "
+         "| level means | verdict |", "|---|---|---|---|---|---|---|"]
     for p, r in analysis.items():
         c, rn = r["checks"], r["rational"]
         means = ", ".join(f"{k}: {v:+.2f}" for k, v in r["level_means"].items())
         L.append(f"| {p} | {_yn(c['monotonic'])} ({r['spearman']:.2f}) | {_yn(c['near_diagonal'])} "
                  f"({r['max_cross_loading']:.2f}) | {_yn(c['rational_null'])} ({rn['mean']:+.2f} "
-                 f"[{rn['lo']:+.2f}, {rn['hi']:+.2f}]) | {r['own_effect_sd']:+.2f} | {means} | **{_yn(r['passed'])}** |")
+                 f"[{rn['lo']:+.2f}, {rn['hi']:+.2f}], ±{rn['margin']:.2f}) | {r['own_effect_sd']:+.2f} | {means} "
+                 f"| **{_yn(r['passed'])}** |")
     sa = analysis.get("self_attribution", {}).get("beta_gamma_by_level")
     if sa:
-        L += ["", "Self-attribution β (credit after a hit) and γ (blame after a miss), log-odds, by prompted level: "
+        L += ["", "Self-attribution β (rise in the private-estimate weight after a confirmation) and γ (fall after a "
+              "contradiction), in units of its rational weight, by prompted level: "
               + "; ".join(f"{k}: β={v['beta']:+.2f}, γ={v['gamma']:+.2f}" for k, v in sa.items())]
+    return L
 
+
+def report(cfg: Config, registration: str, analyses: dict[tuple[str, str], dict], chosen: str | None,
+           moments: list[dict] | None, freeze: dict | None, usage: dict) -> str:
+    """`analyses` maps (model, thinking) to a measurement analysis; `chosen` is the market model."""
+    th = cfg.measurement.thresholds
+    L = ["# Gate 0 report", "", f"Registration: `{cfg.registration}` `{registration}`", ""]
+
+    L += ["## Measurement stage", "",
+          f"Checks: Spearman ≥ {th.monotonic_spearman} plus a paired top-vs-neutral CI above 0; max cross-loading "
+          f"< {th.max_cross_loading}; rational null: the rational arm's {1 - th.rational_null_alpha:.0%} CI lies within "
+          f"±{th.rational_null_margin} × the primitive's own (top − neutral) effect.", "",
+          "Verdicts by model and thinking setting (the registered setting is "
+          f"`{cfg.models.thinking}`; `{cfg.models.control_thinking}` is a descriptive control and never gates):", "",
+          "| primitive | " + " | ".join(f"{m} / {t}" for m, t in analyses) + " |", "|---" * (len(analyses) + 1) + "|"]
+    for p in cfg.measurement.primitives:
+        L.append(f"| {p} | " + " | ".join(_yn(a[p]["passed"]) if p in a else "n/a" for a in analyses.values()) + " |")
+    if chosen:
+        L += ["", f"Market model by the registered rule (`{cfg.models.market_model_rule}`): **{chosen}**, thinking "
+              f"`{cfg.models.thinking}`."]
+    for (model, thinking), a in analyses.items():
+        L += ["", f"### {model}, thinking {thinking}", ""] + _measurement_table(a)
+
+    # Gate verdicts use the market model's measurement at the registered thinking setting.
+    analysis = analyses.get((chosen, cfg.models.thinking)) or next(iter(analyses.values()), {})
     if moments:
         v = verdicts(cfg, analysis, moments)
         df = pd.DataFrame(moments)
@@ -241,14 +274,8 @@ def report(cfg: Config, registration: str, analysis: dict, moments: list[dict] |
             c = paired_contrast(freeze["moments"], freeze["arm"], base_arm, "optimism_anomaly", cfg.moments)
             L.append(f"- {freeze['arm']} − {base_arm}: {_ci(c)}")
 
-    if strong is not None and base is not None:
-        L += ["", "## Stronger-model repeat", "", "Mean item score by condition and task (rational = 0 on every task).", ""]
-        conds = set(strong.condition)
-        both = pd.concat([base[base.condition.isin(conds)], strong])
-        tab = both.dropna(subset=["score"]).pivot_table(index=["condition", "task"], columns="model", values="score")
-        L += [tab.round(3).to_markdown()]
-
-    L += ["", "## Usage", "", "| model | input tokens | output tokens |", "|---|---|---|"]
-    for model, (i, o) in sorted(usage.items()):
-        L.append(f"| {model} | {i:,} | {o:,} |")
+    L += ["", "## Usage", "", "API calls billed under this registration (since `gate0 register`; dev runs: whole cache).",
+          "", "| model | calls | input tokens | output tokens |", "|---|---|---|---|"]
+    for model, (n, i, o) in sorted(usage.items()):
+        L.append(f"| {model} | {n:,} | {i:,} | {o:,} |")
     return "\n".join(L) + "\n"
