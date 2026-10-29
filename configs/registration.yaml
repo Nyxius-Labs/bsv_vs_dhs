@@ -1,0 +1,80 @@
+# Gate 0 pre-registration. Everything here is frozen by `gate0 register`;
+# changing any value (or any file under prompts/) after registration invalidates the lock.
+
+models:
+  base: claude-haiku-5-5
+  strong: claude-sonnet-5-5
+  effort: low
+  max_tokens: 4096                # adaptive thinking counts toward this
+
+measurement:
+  primitives: [conservatism, representativeness, overconfidence, self_attribution]
+  intensities: [0, 1, 2, 3]       # 0 = neutral persona (no bias text)
+  n_items: 10                     # held out from prompt design
+  repeats: 3
+  item_seed: 20261029
+  thresholds:
+    monotonic_spearman: 0.8       # recovered vs prompted intensity, over level means
+    max_cross_loading: 0.25       # |off-diagonal effect| / |own effect|, in SD units
+    rational_null_alpha: 0.05     # CI level (1 - alpha) for the rational-null and top-vs-neutral tests
+    rational_null_margin: 0.25    # equivalence: rational CI must lie within +/- this share of the own (top - neutral) effect
+
+theories:
+  bsv: [conservatism, representativeness]
+  dhs: [overconfidence, self_attribution]
+
+market:
+  n_assets: 10
+  n_agents: 12
+  n_rounds: 40
+  seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  arms: [bsv, dhs, joint, rational, placebo]
+  masked_arms: [joint, placebo]   # masked placebo separates recalled finance knowledge from induced beliefs
+  masked_seeds: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  announcement_every: 4           # rounds between earnings reports
+  price_window: 8                 # price history shown to agents
+  initial_cash: 1000.0
+  initial_shares: 10
+  demand_scale: 2.0               # shares per unit of confidence x log-mispricing
+  budget_per_asset: cash_over_n   # buy budget per asset per round = cash / n_assets, identical in every arm
+  show_previous_estimate: true    # each agent sees its own last estimate and whether the price confirmed it
+  fundamentals:
+    factor_vol: 0.03
+    idio_vol: 0.04
+    signal_vol_low: 0.03
+    signal_vol_high: 0.09
+    common_persistence: 0.8       # AR(1) of the error analysts share; corrected by reports
+    p_high_dispersion: 0.5
+    regime_persistence: 0.9
+    earnings_noise: 0.02
+    analyst_optimism_max: 0.06    # used only by the held-out anomaly
+
+moments:
+  formation_window: 4
+  max_horizon: 12
+  interaction_horizon: 4         # also the single horizon of the momentum manipulation check
+  pead_window: 3
+  bootstrap_draws: 5000
+  ci_level: 0.95
+
+gate:
+  # A theory advances if both primitives pass measurement and, on at least one of its own moments,
+  # its effect beats placebo (CI rule) and the placebo rule holds. The joint arm uses the union.
+  # A BSV pass on momentum_h shows only that the induced bias produces momentum (both theories
+  # predict it); discrimination between theories stays with the identification-stage moments.
+  gate_moments:
+    bsv: [pead_level, momentum_h]
+    dhs: [dispersion_interaction, pead_gap]
+  manipulation_moment: momentum_h   # reported only: does the market produce momentum at all
+  ci_rule: lower_above_zero       # paired (arm - placebo) seed-bootstrap CI lower bound > 0
+  placebo_share_max: 0.5          # a moment fails if placebo reproduces >= this share of the arm's effect over rational
+
+freeze:
+  seeds: [100, 101, 102, 103, 104]
+  arms: [rational, placebo]       # leading configuration is added at freeze time
+  anomaly: analyst_optimism
+
+strong:
+  conditions: [rational, conservatism, representativeness, overconfidence, self_attribution]
+  intensity: 3
+  repeats: 5

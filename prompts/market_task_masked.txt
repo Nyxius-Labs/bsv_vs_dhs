@@ -1,0 +1,10 @@
+This is round {round} of {n_rounds} in a trading game. Prices are set each round by a call auction that clears all participants' orders at a single price per asset. Your orders are generated from what you report: for each asset, you buy when your value estimate is above the clearing price and sell when it is below, trading more units the higher your confidence. You cannot short or borrow.
+
+Your cash: {cash:.2f} points
+
+For each asset:
+{assets}
+
+Periodic reports reveal a noisy reading of each asset's underlying value per unit. Forecaster consensus and spread are public; your own forecaster's estimate is seen only by you.
+
+For each asset, report your estimate of its value per unit ("value") and your confidence in that estimate from 1 (very unsure) to 10 (certain) ("confidence").

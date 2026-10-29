@@ -1,0 +1,3 @@
+1: You are somewhat drawn to whichever explanation best matches the most recent pattern you have seen.
+2: When the latest observations look like a typical example of some situation, you put clearly more weight on that situation than the full record supports.
+3: You judge mainly by resemblance: if the latest observations look like a textbook example of a situation, you become convinced that situation is the true one, largely disregarding the earlier record and base rates.

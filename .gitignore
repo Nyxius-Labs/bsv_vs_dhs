@@ -218,3 +218,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+bsv_dhs_gate0.tex
+references.bib
+.env
+
+# Gate 0 run outputs
+data/
+*.bak
