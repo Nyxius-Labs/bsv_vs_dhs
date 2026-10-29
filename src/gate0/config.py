@@ -36,6 +36,7 @@ class Thresholds(BaseModel):
     max_cross_loading: float
     rational_null_alpha: float
     rational_null_margin: float
+    rational_null_reference: Literal["neutral"]
 
 
 class Measurement(BaseModel):

@@ -148,16 +148,21 @@ def market_model(cfg: Config, analyses: dict[str, dict]) -> str:
     return max(analyses, key=key)
 
 
+def _bayes(r: dict) -> str:
+    b = r.get("rational_vs_bayes")
+    return f"{b['mean']:+.2f} [{b['lo']:+.2f}, {b['hi']:+.2f}]" if b else "n/a"
+
+
 def _measurement_table(analysis: dict) -> list[str]:
-    L = ["| primitive | monotonic (ρ) | near-diagonal (max) | rational null (mean [CI], ±margin) | own effect (SD) "
-         "| level means | verdict |", "|---|---|---|---|---|---|---|"]
+    L = ["| primitive | monotonic (ρ) | near-diagonal (max) | rational − neutral (mean [CI], ±margin) | own effect (SD) "
+         "| level means | verdict | rational vs Bayes |", "|---|---|---|---|---|---|---|---|"]
     for p, r in analysis.items():
         c, rn = r["checks"], r["rational"]
         means = ", ".join(f"{k}: {v:+.2f}" for k, v in r["level_means"].items())
         L.append(f"| {p} | {_yn(c['monotonic'])} ({r['spearman']:.2f}) | {_yn(c['near_diagonal'])} "
                  f"({r['max_cross_loading']:.2f}) | {_yn(c['rational_null'])} ({rn['mean']:+.2f} "
                  f"[{rn['lo']:+.2f}, {rn['hi']:+.2f}], ±{rn['margin']:.2f}) | {r['own_effect_sd']:+.2f} | {means} "
-                 f"| **{_yn(r['passed'])}** |")
+                 f"| **{_yn(r['passed'])}** | {_bayes(r)} |")
     sa = analysis.get("self_attribution", {}).get("beta_gamma_by_level")
     if sa:
         L += ["", "Self-attribution β (rise in the private-estimate weight after a confirmation) and γ (fall after a "
@@ -174,8 +179,9 @@ def report(cfg: Config, registration: str, analyses: dict[tuple[str, str], dict]
 
     L += ["## Measurement stage", "",
           f"Checks: Spearman ≥ {th.monotonic_spearman} plus a paired top-vs-neutral CI above 0; max cross-loading "
-          f"< {th.max_cross_loading}; rational null: the rational arm's {1 - th.rational_null_alpha:.0%} CI lies within "
-          f"±{th.rational_null_margin} × the primitive's own (top − neutral) effect.", "",
+          f"< {th.max_cross_loading}; rational null: the {1 - th.rational_null_alpha:.0%} CI of (rational − neutral), paired "
+          f"over items, lies within ±{th.rational_null_margin} × the primitive's own (top − neutral) effect. The last "
+          "column is the rational arm's level against the Bayesian benchmark (descriptive).", "",
           "Verdicts by model and thinking setting (the registered setting is "
           f"`{cfg.models.thinking}`; `{cfg.models.control_thinking}` is a descriptive control and never gates):", "",
           "| primitive | " + " | ".join(f"{m} / {t}" for m, t in analyses) + " |", "|---" * (len(analyses) + 1) + "|"]

@@ -146,3 +146,12 @@ def test_whole_dollar_rational_agent_passes_null():
     df = run_measurement(CFG, Rounding(clean_params(), seed=3, noise=0.0), "synthetic", base_design(CFG), 3)
     res = analyze(df, CFG)
     assert all(r["checks"]["rational_null"] for r in res.values()), {p: r["rational"] for p, r in res.items()}
+
+
+def test_shared_offset_from_bayes_passes_neutral_anchored_null():
+    """Without thinking the models are off the Bayesian benchmark under every persona. The null is anchored
+    to the neutral persona, so a shared offset passes; it still shows in the descriptive Bayes column."""
+    base = clean_params()
+    res = analyze(_measure(lambda c: {**base(c), "conservatism": base(c).get("conservatism", 0.0) + 0.4}), CFG)
+    assert res["conservatism"]["checks"]["rational_null"]
+    assert res["conservatism"]["rational_vs_bayes"]["lo"] > 0.3

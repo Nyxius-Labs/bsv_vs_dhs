@@ -64,7 +64,9 @@ def analyze(df: pd.DataFrame, cfg: Config) -> dict[str, dict]:
         # Paired over items: the top intensity must beat neutral on the same items, beyond noise.
         top_diff = _paired(im, conds[-1], conds[0], p)
         _, diff_lo, _ = bootstrap_ci(top_diff, cfg.moments.bootstrap_draws, level)
-        null_mean, null_lo, null_hi = bootstrap_ci(_cell(im, "rational", p), cfg.moments.bootstrap_draws, level)
+        # Null reference is the neutral persona (th.rational_null_reference == "neutral"), paired over items.
+        null_mean, null_lo, null_hi = bootstrap_ci(_paired(im, "rational", conds[0], p), cfg.moments.bootstrap_draws, level)
+        bayes = bootstrap_ci(_cell(im, "rational", p), cfg.moments.bootstrap_draws, level)  # descriptive only
         margin = th.rational_null_margin * abs(level_means[-1] - level_means[0])
         checks = {
             "monotonic": bool(np.isfinite(rho) and rho >= th.monotonic_spearman and own > 0
@@ -82,6 +84,7 @@ def analyze(df: pd.DataFrame, cfg: Config) -> dict[str, dict]:
             "cross_loadings": cross,
             "max_cross_loading": float(max_cross),
             "rational": {"mean": null_mean, "lo": null_lo, "hi": null_hi, "margin": float(margin)},
+            "rational_vs_bayes": dict(zip(("mean", "lo", "hi"), bayes)),
             "top_vs_neutral_lo": float(diff_lo),
             "sd_unit": sd[p],
             # Recovered intensity distribution used to seat agents in the market.

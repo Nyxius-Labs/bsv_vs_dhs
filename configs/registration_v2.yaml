@@ -2,8 +2,8 @@
 # (tags gate0-registered / gate0-v1-result), which stopped at measurement. Everything here is
 # frozen by `gate0 register` into registration_v2.lock.
 #
-# Attempt 1 changes the measurement items (one-stock market vignettes scored by paired variants)
-# and turns thinking off. Persona text is v1's, unchanged. Thresholds, gate rules, market design and
+# Attempt 1 changes the measurement items (one-stock market vignettes scored by paired variants),
+# turns thinking off, and anchors the rational null to the neutral persona. Persona text is v1's, unchanged. Thresholds, gate rules, market design and
 # seeds are v1's, unchanged. At most two v2 attempts; every attempt is reported.
 
 registration: v2-attempt1
@@ -33,6 +33,10 @@ measurement:
     max_cross_loading: 0.25       # |off-diagonal effect| / |own effect|, in SD units
     rational_null_alpha: 0.05     # CI level (1 - alpha) for the rational-null and top-vs-neutral tests
     rational_null_margin: 0.25    # equivalence: rational CI must lie within +/- this share of the own (top - neutral) effect
+    # v2 change, decided on dev data before registration: the null is (rational - neutral), paired over
+    # items, not (rational - Bayes). Without thinking neither model weights sources by stated precision,
+    # so the Bayesian zero is unreachable for any persona; the market's baseline is the neutral persona.
+    rational_null_reference: neutral
 
 theories:
   bsv: [conservatism, representativeness]
