@@ -1,7 +1,7 @@
 import numpy as np
 
 from gate0.config import load_config
-from gate0.market.agents import round_prompt, seat_agents
+from gate0.market.agents import round_prompt, seat_agents, track_record
 from gate0.market.auction import clear, demand
 from gate0.market.fundamentals import make_world
 from gate0.market.simulate import MarketRun, build_runs
@@ -56,7 +56,7 @@ def test_seating_is_paired_across_arms():
 
 def test_masked_prompt_has_no_market_cues():
     run = MarketRun(CFG, "joint", 0, True, seat_agents(CFG, "joint", 0, None))
-    text = round_prompt(CFG.market, run.world, 5, 0, run.names, True, run.prices, run.holdings[0], 1000.0, None, None)
+    text = round_prompt(CFG.market, run.world, 5, 0, run.names, True, run.prices, run.holdings[0], 1000.0, None)
     for word in ("stock", "earnings", "analyst", "$", "momentum"):
         assert word not in text.lower()
 
@@ -76,19 +76,28 @@ def test_true_value_never_reaches_agents():
     v0 = np.exp(run.world.log_value[0])
     assert not np.allclose(run.prices[0], v0)
     assert not np.any(np.isclose(run.value, v0[None, :]))
-    text = round_prompt(CFG.market, run.world, 1, 0, run.names, False, run.prices, run.holdings[0], 1000.0, None, None)
+    text = round_prompt(CFG.market, run.world, 1, 0, run.names, False, run.prices, run.holdings[0], 1000.0, None)
     for v in v0:
         assert f"{v:.2f}" not in text
 
 
-def test_previous_estimate_and_confirmation_shown():
+def test_track_record_counts_moves_toward_own_estimates():
     run = MarketRun(CFG, "placebo", 0, False, seat_agents(CFG, "placebo", 0, None))
-    run.prices[1] = run.prices[0] * 1.1                      # price rose after the estimate
-    prev = run.prices[0] * np.where(np.arange(CFG.market.n_assets) == 0, 1.2, 0.8)
-    text = round_prompt(CFG.market, run.world, 2, 0, run.names, False, run.prices, run.holdings[0], 1000.0,
-                        prev, np.full(CFG.market.n_assets, 5.0))
-    assert "(confirmed)" in text and "(not confirmed)" in text
-    assert text.count("(confirmed)") == 1                    # only asset 0 was estimated above the old price
+    n = CFG.market.track_record
+    for s in range(1, n + 1):
+        run.prices[s] = run.prices[s - 1] * 1.05             # the price rises every round
+        # asset 0 was always estimated above the last price, asset 1 always below
+        run.estimates[0, s, 0], run.estimates[0, s, 1] = run.prices[s - 1, 0] * 1.2, run.prices[s - 1, 1] * 0.8
+    hits = track_record(run.estimates[0], run.prices, n + 1, n)
+    assert hits[0] == n and hits[1] == 0
+    text = round_prompt(CFG.market, run.world, n + 1, 0, run.names, False, run.prices, run.holdings[0], 1000.0, hits)
+    assert f"after {n} of your last {n} value estimates" in text and f"after 0 of your last {n} value estimates" in text
+
+
+def test_track_record_shown_only_once_complete():
+    run = MarketRun(CFG, "placebo", 0, False, seat_agents(CFG, "placebo", 0, None))
+    n = CFG.market.track_record
+    assert "track record" not in run.calls(n)[0].user
 
 
 def test_forecast_recorded_for_pead():

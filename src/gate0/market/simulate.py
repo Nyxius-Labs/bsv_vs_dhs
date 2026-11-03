@@ -10,7 +10,7 @@ import numpy as np
 
 from gate0.config import Config
 from gate0.llm import Call, LLMClient
-from gate0.market.agents import AgentSpec, RuleAgent, order_schema, round_prompt, seat_agents
+from gate0.market.agents import AgentSpec, RuleAgent, order_schema, round_prompt, seat_agents, track_record
 from gate0.market.auction import clear
 from gate0.market.fundamentals import World, make_world
 from gate0.personas import tickers
@@ -41,6 +41,7 @@ class MarketRun:
         self.cash = np.full(J, m.initial_cash)
         self.value = np.exp(np.stack([self.world.signal(0, j) for j in range(J)]))  # fallback before any answer
         self.conf = np.ones((J, N))
+        self.estimates = np.full((J, T + 1, N), np.nan)  # estimates[j, s]: agent j's values from round s
         # Mean agent forecast (log) after each round; the pre-announcement consensus for PEAD.
         self.forecast = np.full((T + 1, N), np.nan)
         self.forecast[0] = np.log(self.value).mean(axis=0)
@@ -54,12 +55,14 @@ class MarketRun:
     def calls(self, t: int) -> list[Call]:
         m = self.cfg.market
         schema = order_schema(self.symbols)
-        show = m.show_previous_estimate and t > 1
+        # A track record needs n estimates whose next price is known: rounds t-n..t-1, all >= 1.
+        show = m.track_record and t > m.track_record
         return [
             Call(
                 self.model, a.system,
                 round_prompt(m, self.world, t, a.j, self.names, self.masked, self.prices, self.holdings[a.j],
-                             self.cash[a.j], self.value[a.j] if show else None, self.conf[a.j] if show else None),
+                             self.cash[a.j],
+                             track_record(self.estimates[a.j], self.prices, t, m.track_record) if show else None),
                 schema, nonce=self.tag,
             )
             for a in self.agents
@@ -87,6 +90,7 @@ class MarketRun:
     def clear_round(self, t: int) -> None:
         m = self.cfg.market
         self.forecast[t] = np.log(self.value).mean(axis=0)
+        self.estimates[:, t] = self.value
         budget = self.cash / m.n_assets  # m.budget_per_asset == "cash_over_n"
         for i in range(m.n_assets):
             p, x = clear(self.value[:, i], self.conf[:, i], self.holdings[:, i], budget,

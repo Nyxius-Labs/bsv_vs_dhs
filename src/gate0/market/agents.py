@@ -163,37 +163,40 @@ def consensus_error(m: Market, signal_vol: float) -> float:
     return 100 * signal_vol / np.sqrt(2) * np.sqrt(1 + 1 / m.n_agents)
 
 
-def confirmation(prev_value: float, before: float, after: float) -> str:
-    """Outcome of an estimate made against price `before`: confirmed if the next price moved toward it."""
-    toward = np.sign(prev_value - before) * np.sign(after - before)
-    return ("the price then moved toward it (confirmed)" if toward > 0 else
-            "the price then moved away from it (not confirmed)" if toward < 0 else
-            "the price then did not move relative to it (neither)")
+def track_record(estimates: np.ndarray, prices: np.ndarray, t: int, n: int) -> np.ndarray:
+    """Per asset, how many of one agent's estimates from rounds t-n..t-1 the next price moved toward.
+
+    `estimates[s]` was made in round s against the last price p[s-1]; the next price is p[s].
+    """
+    s = np.arange(t - n, t)
+    toward = np.sign(estimates[s] - prices[s - 1]) * np.sign(prices[s] - prices[s - 1])
+    return (toward > 0).sum(axis=0)
 
 
 def asset_block(
     masked: bool, name: str, prices: list[float], reports: list[tuple[int, float]], consensus: float,
-    consensus_err: float, dispersion: float, private: float, private_err: float,
-    prev: tuple[float, float, str] | None, holding: float,
+    consensus_err: float, dispersion: float, private: float, private_err: float, holding: float,
+    record: tuple[int, int] | None = None, now: int | None = None,
 ) -> str:
     """One asset's lines, shared verbatim by the market prompt and the measurement vignettes.
 
-    `reports` are (round, value) oldest to newest; `prev` is (value, confidence, outcome text).
+    `reports` are (round, value) oldest to newest, and one released in round `now` is marked as new;
+    `record` is (hits, n): how many of the agent's last n estimates the next price moved toward.
     """
     v = VOCAB[masked]
     money = v["money"]
     lines = [name, "  recent prices (oldest to newest): " + ", ".join(f"{money}{p:.2f}" for p in prices)]
     if reports:
         lines.append(f"  {v['report']}s (oldest to newest): "
-                     + "; ".join(f"round {r}: {money}{x:.2f}" for r, x in reports))
+                     + "; ".join(f"round {r}: {money}{x:.2f}{' (new this round)' if r == now else ''}" for r, x in reports))
     else:
         lines.append(f"  no {v['report']} yet")
     lines.append(f"  {v['consensus']}: {money}{consensus:.2f} (typical error ±{consensus_err:.1f}%); "
                  f"{v['dispersion']}: ±{dispersion:.1f}%")
     lines.append(f"  {v['private']}: {money}{private:.2f} (typical error ±{private_err:.1f}%)")
-    if prev is not None:
-        value, conf, outcome = prev
-        lines.append(f"  your previous value estimate: {money}{value:.2f} (confidence {conf:.0f}); {outcome}")
+    if record is not None:
+        hits, n = record
+        lines.append(f"  your track record: after {hits} of your last {n} value estimates, the next price moved toward your estimate")
     lines.append(f"  you hold {holding:.1f} {v['units']}")
     return "\n".join(lines)
 
@@ -206,21 +209,19 @@ def task_prompt(m: Market, masked: bool, t: int, cash: float, blocks: list[str])
 
 def round_prompt(
     m: Market, world: World, t: int, j: int, names: list[tuple[str, str]], masked: bool,
-    prices: np.ndarray, holdings: np.ndarray, cash: float, prev_value: np.ndarray | None, prev_conf: np.ndarray | None,
+    prices: np.ndarray, holdings: np.ndarray, cash: float, record: np.ndarray | None,
 ) -> str:
+    """`record` is the agent's per-asset track record over its last `m.track_record` estimates, or None."""
     reports = [r for r in world.report_rounds if r <= t][-m.reports_shown:]
     signal = np.exp(world.signal(t, j))
     blocks = []
     for i, (_, name) in enumerate(names):
-        prev = None
-        if prev_value is not None and t >= 2:
-            # Made in round t-1 against price p[t-2]; confirmed if the next price moved toward it.
-            prev = (prev_value[i], prev_conf[i], confirmation(prev_value[i], prices[t - 2, i], prices[t - 1, i]))
         sv = world.signal_vol[t, i]
         blocks.append(asset_block(
             masked, name, list(prices[max(0, t - m.price_window) : t, i]),
             [(r, float(np.exp(world.report[r, i]))) for r in reports],
             float(np.exp(world.consensus[t, i])), consensus_error(m, sv), 100 * world.dispersion[t, i],
-            float(signal[i]), private_error(m, sv), prev, holdings[i],
+            float(signal[i]), private_error(m, sv), holdings[i],
+            None if record is None else (int(record[i]), m.track_record), now=t,
         ))
     return task_prompt(m, masked, t, cash, blocks)

@@ -69,7 +69,8 @@ def analyze(df: pd.DataFrame, cfg: Config) -> dict[str, dict]:
         bayes = bootstrap_ci(_cell(im, "rational", p), cfg.moments.bootstrap_draws, level)  # descriptive only
         margin = th.rational_null_margin * abs(level_means[-1] - level_means[0])
         checks = {
-            "monotonic": bool(np.isfinite(rho) and rho >= th.monotonic_spearman and own > 0
+            # 1e-9: spearmanr returns 0.7999... for an exact 0.8
+            "monotonic": bool(np.isfinite(rho) and rho >= th.monotonic_spearman - 1e-9 and own > 0
                               and np.isfinite(diff_lo) and diff_lo > 0),
             "near_diagonal": bool(max_cross < th.max_cross_loading),
             # Equivalence, not failure to reject: the whole CI must sit inside +/- margin.

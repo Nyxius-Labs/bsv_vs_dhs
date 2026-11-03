@@ -183,7 +183,8 @@ def report(cfg: Config, registration: str, analyses: dict[tuple[str, str], dict]
           f"over items, lies within ±{th.rational_null_margin} × the primitive's own (top − neutral) effect. The last "
           "column is the rational arm's level against the Bayesian benchmark (descriptive).", "",
           "Verdicts by model and thinking setting (the registered setting is "
-          f"`{cfg.models.thinking}`; `{cfg.models.control_thinking}` is a descriptive control and never gates):", "",
+          f"`{cfg.models.thinking}`" + (f"; `{cfg.models.control_thinking}` is a descriptive control and never gates):"
+                                        if cfg.models.control_thinking else "):"), "",
           "| primitive | " + " | ".join(f"{m} / {t}" for m, t in analyses) + " |", "|---" * (len(analyses) + 1) + "|"]
     for p in cfg.measurement.primitives:
         L.append(f"| {p} | " + " | ".join(_yn(a[p]["passed"]) if p in a else "n/a" for a in analyses.values()) + " |")

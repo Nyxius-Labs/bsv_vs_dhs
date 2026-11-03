@@ -10,6 +10,8 @@ import numpy as np
 
 from gate0.measure.items import Item
 
+SLOPE_FLOOR = 0.01  # an ignored source (slope <= 0) counts as weight 0.01, keeping log-ratios finite
+
 
 def _log_value(item: Item, out: dict) -> float:
     v = float(out[item.truth["symbol"]]["value"])
@@ -39,27 +41,37 @@ def score(item: Item, outs: list[dict | None]) -> float | None:
         return None
 
 
+def _log_ratio(num: float, den: float, w_num: float, w_den: float) -> float:
+    """log(num/den) - log(w_num/w_den): how much more one source is weighted than another, relative
+    to the benchmark. A proportional change in every other source's weight leaves it unchanged, so
+    a bias acting on a third source does not load on it."""
+    return float(np.log(max(num, SLOPE_FLOOR) / max(den, SLOPE_FLOOR)) - np.log(w_num / w_den))
+
+
 def _conservatism(item: Item, lv: list[float]) -> float:
-    """Underreaction to the newest report plus overreaction to the previous one, in weight units:
-    (w_new - s_new) + (s_old - w_old). Uniform underreaction and anchoring on older news both score > 0."""
-    w = item.truth["w"]
-    return float((w["r0"] - _slope(item, lv, 0)) + (_slope(item, lv, 2) - w["r1"]))
+    """Earnings news underweighted relative to the market's prior (the price): -log of the reports'
+    share of the weight on {reports, price}, log((s_R + s_a) / s_R). The benchmark gives the price no
+    weight, so rational = 0. R moves every report together, so extrapolating the reports' trend does
+    not load on it; overweighting the private estimate takes weight from reports and price alike, so
+    it does not load either."""
+    s_r, s_a = _slope(item, lv, 0), max(_slope(item, lv, 2), 0.0)
+    return float(np.log((max(s_r, SLOPE_FLOOR) + s_a) / max(s_r, SLOPE_FLOOR)))
 
 
 def _representativeness(item: Item, lv: list[float]) -> float:
-    """Extrapolation of a report streak: (streak - swapped) value beyond the rational difference,
-    in the streak's direction, per unit of the streak's span."""
+    """Extrapolation of a report streak: (rising - falling) value beyond the rational difference,
+    per unit of the two streaks' combined span."""
     t, w = item.truth, item.truth["w"]
     a, b = item.variants[0]["obs"], item.variants[1]["obs"]
     rational = sum(w[s] * (a[s] - b[s]) for s in ("r2", "r1"))
-    return float(t["direction"] * ((lv[0] - lv[1]) - rational) / t["span"])
+    return float(((lv[0] - lv[1]) - rational) / (2 * t["span"]))
 
 
 def _overconfidence(item: Item, lv: list[float]) -> float:
-    """Weight on the private estimate relative to its rational weight, minus the same for the
-    consensus (DHS overconfidence: private information overweighted relative to public)."""
+    """Private estimate overweighted relative to the public consensus (DHS overconfidence):
+    log(s_p / s_c) - log(w_p / w_c)."""
     w = item.truth["w"]
-    return float(_slope(item, lv, 0) / w["p"] - _slope(item, lv, 2) / w["c"])
+    return _log_ratio(_slope(item, lv, 0), _slope(item, lv, 2), w["p"], w["c"])
 
 
 def _self_attribution(item: Item, lv: list[float]) -> float:

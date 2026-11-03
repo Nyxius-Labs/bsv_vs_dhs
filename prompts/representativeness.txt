@@ -1,3 +1,3 @@
-1: You are somewhat drawn to whichever explanation best matches the most recent pattern you have seen.
-2: When the latest observations look like a typical example of some situation, you put clearly more weight on that situation than the full record supports.
-3: You judge mainly by resemblance: if the latest observations look like a textbook example of a situation, you become convinced that situation is the true one, largely disregarding the earlier record and base rates.
+1: When a company's last few earnings reports all move the same way, you are somewhat inclined to see the start of a trend; reports that go back and forth suggest nothing to you.
+2: When a company's earnings reports have been moving in one direction, it looks to you like a company that has changed, and you expect the run to continue; reports that go back and forth suggest nothing to you.
+3: Streaks convince you: when recent earnings reports line up in one direction, you are sure the company's path has changed, and you value it for where the trend is heading rather than where the latest report puts it; reports that go back and forth suggest nothing to you.

@@ -12,19 +12,19 @@ import yaml
 from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parents[2]
-# v2 is the active registration. v1 (configs/registration.yaml, registration.lock) is a record only:
-# it is reproducible from the tags gate0-registered and gate0-v1-result, not from this code.
-CONFIG_PATH = ROOT / "configs" / "registration_v2.yaml"
+# v3 is the active registration. v1 and v2 (configs/registration{,_v2}.yaml and their locks) are records
+# only: they are reproducible from their tags, not from this code.
+CONFIG_PATH = ROOT / "configs" / "registration_v3.yaml"
 PROMPTS_DIR = ROOT / "prompts"
-LOCK_PATH = ROOT / "registration_v2.lock"
+LOCK_PATH = ROOT / "registration_v3.lock"
 DATA_DIR = ROOT / "data"
-REGISTERED_DIR = DATA_DIR / "registered_v2"
+REGISTERED_DIR = DATA_DIR / "registered_v3"
 
 
 class Models(BaseModel):
     candidates: list[str]           # also the tie-break order of the market-model rule
     thinking: Literal["off", "adaptive"]
-    control_thinking: Literal["off", "adaptive"]
+    control_thinking: Literal["off", "adaptive"] | None = None  # descriptive control grid; None = not run
     thinking_off: dict[str, str]    # API form of "off" per model
     effort: str
     max_tokens: int
@@ -76,7 +76,7 @@ class Market(BaseModel):
     initial_shares: int
     demand_scale: float
     budget_per_asset: Literal["cash_over_n"]
-    show_previous_estimate: bool
+    track_record: int  # estimates per agent track record (0 = none shown)
     fundamentals: Fundamentals
 
 

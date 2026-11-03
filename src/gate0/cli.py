@@ -66,7 +66,7 @@ def measure(
     items: int = typer.Option(None, help="Override items per task (smoke runs; implies --dev)."),
     repeats: int = typer.Option(None, help="Override repeats (smoke runs; implies --dev)."),
     models: str = typer.Option(None, help="Comma-separated subset of candidate models (implies --dev)."),
-    control: bool = typer.Option(True, help="Also run the descriptive thinking-on control grid."),
+    control: bool = typer.Option(True, help="Also run the registered descriptive control grid, if any."),
 ):
     """Measurement stage on every candidate model: intensity grid, toggles, rational arm, then the checks.
     Runs the registered thinking setting, then the descriptive control setting."""
@@ -75,7 +75,7 @@ def measure(
     cfg.measurement.n_items = items or cfg.measurement.n_items
     _, out = _setup(dev)
     model_list = _csv(models) or cfg.models.candidates
-    settings = [cfg.models.thinking] + ([cfg.models.control_thinking] if control else [])
+    settings = [cfg.models.thinking] + ([cfg.models.control_thinking] if control and cfg.models.control_thinking else [])
     for thinking in settings:
         client = SyntheticClient(clean_params()) if synthetic else _client(cfg, mode, thinking)
         for model in model_list:
@@ -148,7 +148,7 @@ def _load_analyses(cfg, out: Path, thinking: str | None = None) -> dict[tuple[st
     """(model, thinking) -> analysis, for every measurement that has run."""
     found = {}
     for model in cfg.models.candidates:
-        for t in [thinking] if thinking else [cfg.models.thinking, cfg.models.control_thinking]:
+        for t in [thinking] if thinking else [x for x in (cfg.models.thinking, cfg.models.control_thinking) if x]:
             p = _measure_dir(out, model, t) / "analysis.json"
             if p.exists():
                 found[(model, t)] = json.loads(p.read_text())

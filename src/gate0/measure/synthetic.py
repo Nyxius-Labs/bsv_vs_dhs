@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 
 from gate0.llm import Call
-from gate0.measure.items import SOURCES, Item
+from gate0.measure.items import REPORTS, SOURCES, Item
 
 
 def answer(item: Item, v: int, b: dict[str, float], rng: np.random.Generator, noise: float = 0.01) -> dict:
@@ -15,13 +15,15 @@ def answer(item: Item, v: int, b: dict[str, float], rng: np.random.Generator, no
     c, r, o, a = (b.get(k, 0.0) for k in ("conservatism", "representativeness", "overconfidence", "self_attribution"))
     t, var = item.truth, item.variants[v]
     w = dict(t["w"])
-    w["r0"] -= c                      # underreacts to the newest report (weight goes to the prior anchor)
-    w["p"] += o * t["w"]["p"]         # overweights the private estimate
+    w_a = sum(w[k] for k in REPORTS) * (1 - np.exp(-c))  # weight moved from the reports to the last price
+    for k in REPORTS:
+        w[k] *= np.exp(-c)            # underreacts to earnings reports
+    w["p"] *= np.exp(o)               # overweights the private estimate
     if var.get("feedback") == "confirmed":
         w["p"] += a * t["w"]["p"]     # credits itself after a confirmation; no blame after a miss
-    log_v = sum(w[s] * var["obs"][s] for s in SOURCES) + (1 - sum(w.values())) * t["anchor"]
+    log_v = sum(w[s] * var["obs"][s] for s in SOURCES) + w_a * var["obs"]["a"]
     if var.get("streak"):
-        log_v += r * t["direction"] * t["span"]  # extrapolates the streak
+        log_v += r * var["streak"] * t["span"]  # extrapolates the streak
     log_v += rng.normal(0, noise)
     return {t["symbol"]: {"value": float(np.exp(log_v)), "confidence": 5.0}}
 

@@ -1,3 +1,3 @@
-1: You are slightly more sure of the precision of your own estimates than is warranted.
-2: You are clearly more sure of the precision of your own judgments than is warranted; the ranges of outcomes you consider plausible are narrower than they should be.
-3: You are extremely confident in the precision of your own judgments and expect outcomes to land very close to your estimates.
+1: You trust your own analyst's estimate a little more than the analyst consensus.
+2: You believe your own analyst's estimate is clearly better informed than the analyst consensus, more than its stated error suggests.
+3: You are sure your own analyst's estimate is far more reliable than its stated error implies, and you trust it well above the analyst consensus.

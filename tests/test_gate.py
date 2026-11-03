@@ -66,13 +66,14 @@ def test_theories_are_gated_on_their_own_moments():
 
 def test_market_model_rule():
     from gate0.gate import market_model
-    haiku, sonnet = CFG.models.candidates
+    cfg = CFG.model_copy(deep=True)  # the rule needs two candidates; v3 registers one
+    cfg.models.candidates = haiku, sonnet = ["claude-haiku-5-5", "claude-sonnet-5-5"]
     passing = lambda *ps: {p: {"passed": p in ps} for p in CFG.measurement.primitives}  # noqa: E731
     # More theories with both primitives passing wins, even with fewer primitives overall.
     a = {haiku: passing("conservatism", "representativeness"),
          sonnet: passing("conservatism", "overconfidence", "self_attribution")}
     a[sonnet]["representativeness"]["passed"] = False
-    assert market_model(CFG, a) == sonnet  # sonnet: DHS complete (1 theory), 3 primitives; haiku: BSV (1), 2
+    assert market_model(cfg, a) == sonnet  # sonnet: DHS complete (1 theory), 3 primitives; haiku: BSV (1), 2
     # Ties on theories and primitives go to candidate order.
-    assert market_model(CFG, {haiku: passing("conservatism"), sonnet: passing("overconfidence")}) == haiku
-    assert market_model(CFG, {haiku: passing(), sonnet: passing("overconfidence")}) == sonnet
+    assert market_model(cfg, {haiku: passing("conservatism"), sonnet: passing("overconfidence")}) == haiku
+    assert market_model(cfg, {haiku: passing(), sonnet: passing("overconfidence")}) == sonnet
