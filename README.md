@@ -27,6 +27,22 @@ Every threshold, prompt, model ID and source file is hashed into a lock file bef
 | v1 | Haiku 5.5, reasoning on | pass | fail | fail | fail |
 | v2 | Haiku and Sonnet 5.5, reasoning off | fail | fail | fail | fail |
 | v3 | Sonnet 5.5, reasoning off | pass | pass | pass | fail (control check only) |
+| v3b (second format) | Sonnet 5.5, reasoning off | pass | fail | fail | not tested |
+
+v3b is a registered add-on (tag `gate0-v3b-registered`, code in `addon/format_b.py`). It retests the three passing v3 personas on prompts that never mention earnings reports, prices, analysts or trends.
+
+| bias | what the agent does in the v3b prompts |
+|---|---|
+| conservatism | revises its own earlier revenue estimate after an independent survey |
+| representativeness | forecasts next month's orders, stated to vary independently around a known average, after a rising or falling run |
+| overconfidence | gives a 90% range around its own estimate, whose typical error is stated |
+
+Results:
+- **Conservatism carries over.** Its score rises from −0.02 at level 0 to +0.68 at level 3.
+- **Representativeness and overconfidence barely respond.**
+- **The overconfidence persona raises the conservatism score instead,** to 0.57. It holds on to its own earlier estimate.
+
+The full results are in [`results/gate0-v3b/report.md`](results/gate0-v3b/report.md).
 
 In v3, only the biases that passed enter the market:
 - the BSV arm has conservatism and representativeness;
