@@ -16,7 +16,7 @@ def ci(x):
     return x.mean(), *np.quantile(b, [0.025, 0.975])
 
 plt.rcParams.update({"font.family": "serif", "font.size": 7.5, "axes.spines.top": False, "axes.spines.right": False})
-fig, axes = plt.subplots(1, 4, figsize=(7.2, 1.85))
+fig, axes = plt.subplots(1, 4, figsize=(7.2, 1.95))
 ink, grey = "#1f3a5f", "#9aa5b1"
 for ax, (p, title) in zip(axes, names.items()):
     t = s[s.task == p]; im = t.groupby(["condition", "item"]).score.mean()
@@ -30,10 +30,10 @@ for ax, (p, title) in zip(axes, names.items()):
     ax.errorbar([4.4], [r[0]], yerr=[[r[0] - r[1]], [r[2] - r[0]]], color=ink, marker="o", ms=4,
                 mfc="white", capsize=0, elinewidth=1, lw=0)
     ax.set_xticks([0, 1, 2, 3, 4.4], ["0", "1", "2", "3", "R"])
-    ax.set_xlim(-0.4, 4.8); ax.set_title(title + ("" if a[p]["passed"] else "  [fails]"), fontsize=7.5)
+    ax.set_xlim(-0.4, 4.8); ax.set_title(title + ("" if a[p]["passed"] else "\n[rational check fails]"), fontsize=7.5)
     ax.axhline(0, color=grey, lw=0.6, zorder=0)
     ax.tick_params(length=2)
-axes[0].set_ylabel("bias score (0 = Bayesian)")
+axes[0].set_ylabel("bias score (0 = Bayesian weights)")
 fig.supxlabel("prompted level (0 = neutral persona, R = rational persona)", fontsize=7.5, y=0.0)
 fig.tight_layout(pad=0.3, w_pad=0.8)
 fig.savefig("abstract/fig_levels.pdf"); fig.savefig("abstract/fig_levels.png", dpi=200)
