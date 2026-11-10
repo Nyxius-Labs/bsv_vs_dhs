@@ -1,0 +1,29 @@
+# Gate 0 v3b: a registered add-on to v3. A second test format for the three primitives that passed v3,
+# with wording that does not mirror the personas. Frozen by `addon/format_b.py register` into
+# registration_v3b.lock, which also hashes the v3 config, the persona prompts and all of src/gate0.
+#
+# Question: do the v3 personas move a decision whose wording shares nothing with the persona text?
+# - conservatism: revise your own earlier revenue estimate after an independent industry survey
+#   (no earnings report, no market price);
+# - representativeness: forecast next month's orders for a series stated to vary independently around a
+#   long-run average, after a rising vs a falling run (no earnings reports);
+# - overconfidence: give a 90% range around your own research estimate with a stated typical error
+#   (no analyst, no consensus, no weighting between sources).
+#
+# Personas, model, thinking setting and thresholds are exactly those of v3. Self-attribution, which failed
+# v3, is not tested.
+#
+# Decision rule, fixed in advance: a primitive "transfers" if it passes all three v3 checks on format B,
+# with the v3 thresholds. Every result is reported either way, alongside the v3 (format A) result.
+# The format was fixed before any format-B call. A dev smoke test (dev item seed, a few items) is checked
+# only for valid, parseable answers; no wording or scoring change is made on the basis of its scores.
+
+registration: v3b
+base_config: configs/registration_v3.yaml   # personas, models, thinking, thresholds, bootstrap draws
+
+primitives: [conservatism, representativeness, overconfidence]
+intensities: [0, 1, 2, 3]
+n_items: 20
+repeats: 3
+item_seed: 20261211          # new; dev smoke test uses item_seed + 1
+shift: 0.12                  # survey +/- shift (conservatism), in log units
