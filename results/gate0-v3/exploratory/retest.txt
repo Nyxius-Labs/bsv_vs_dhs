@@ -1,0 +1,4 @@
+conservatism         cells  80  within-level r 0.78  reliability of 3-repeat mean 0.91
+representativeness   cells  80  within-level r 0.90  reliability of 3-repeat mean 0.97
+overconfidence       cells  80  within-level r 0.80  reliability of 3-repeat mean 0.92
+self_attribution     cells  80  within-level r 0.51  reliability of 3-repeat mean 0.76

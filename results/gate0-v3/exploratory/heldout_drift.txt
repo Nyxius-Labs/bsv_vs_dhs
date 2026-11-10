@@ -1,0 +1,4 @@
+pead_level  bsv - placebo  +0.159 [+0.022, +0.305] (n=5)
+pead_level  bsv - rational +0.178 [+0.010, +0.347] (n=5)
+momentum_h  bsv - placebo  +0.057 [+0.033, +0.077] (n=5)
+momentum_h  bsv - rational +0.045 [+0.026, +0.063] (n=5)

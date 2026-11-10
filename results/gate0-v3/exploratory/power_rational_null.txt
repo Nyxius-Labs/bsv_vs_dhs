@@ -1,0 +1,3 @@
+items 20, observed gap -0.196, margin +/-0.277
+true gap +0.000: check passes in 98% of resamples
+true gap -0.196: check passes in 24% of resamples

@@ -28,14 +28,40 @@ Every threshold, prompt, model ID and source file is hashed into a lock file bef
 | v2 | Haiku and Sonnet 5.5, reasoning off | fail | fail | fail | fail |
 | v3 | Sonnet 5.5, reasoning off | pass | pass | pass | fail (control check only) |
 
-In v3, BSV entered the market. Each figure below is BSV's difference from the neutral market, with a 95% interval over data sets:
+In v3, only the biases that passed enter the market:
+- the BSV arm has conservatism and representativeness;
+- the DHS arm has overconfidence alone;
+- the joint arm has all three.
 
-- **post-earnings drift:** +0.18 [0.07, 0.30];
-- **momentum:** +0.09 [0.06, 0.12]. BSV prices keep moving in the same direction for about four rounds and then reverse; neutral prices reverse from the start.
+Each figure below is an arm's difference from the neutral market, with a 95% interval over 10 data sets:
 
-In the disguised market, the drift persists. DHS did not pass measurement, so the registered rule stops the comparison of the two theories here.
+| arm | post-earnings drift | momentum (4 rounds) |
+|---|---|---|
+| BSV | +0.18 [0.07, 0.30] | +0.09 [0.06, 0.12] |
+| DHS (overconfidence only) | +0.04 [−0.03, 0.12] | −0.06 [−0.07, −0.04] |
+| joint | +0.08 [0.02, 0.15] | +0.01 [0.00, 0.01] |
+| rational | −0.01 [−0.05, 0.03] | +0.01 [0.01, 0.02] |
+| joint, disguised (vs. disguised neutral) | +0.11 [0.05, 0.18] | −0.01 [−0.01, 0.00] |
+
+- **BSV advances.** It passes on both of its registered outcomes.
+- **BSV momentum is relative.** BSV momentum by itself is +0.03 [−0.03, 0.09], so the momentum gain is relative to a neutral market that slightly reverses.
+- **Disguised market.** With coded tickers and no finance vocabulary, the joint arm's drift persists but its momentum does not.
+- **Held-out test.** The registered test on five held-out data sets uses a pattern neither bias targets (analyst optimism). It finds no difference: +0.000 [−0.001, 0.002].
+- **The theory comparison stops.** DHS did not pass measurement, so the registered rule stops the comparison of the two theories here.
+
+Registered outputs are in [`results/`](results/):
+- v2 measurement;
+- v3 item-level scores, per-run market moments and freeze runs.
 
 The dev iteration behind v3 is logged in [`results/gate0-v3-dev/iteration_log.md`](results/gate0-v3-dev/iteration_log.md).
+
+### Exploratory analyses (not registered)
+
+Each script in `analysis/` writes its output to `results/gate0-v3/exploratory/`:
+- `power_rational_null.py`: how often the control check passes when the rational and neutral personas truly agree;
+- `retest.py`: the correlation between repeats of a prompt;
+- `heldout_drift.py`: the BSV drift and momentum on the held-out data sets;
+- `cross_model_sa.py`: the self-attribution control check on fresh dev prompts, for Sonnet, Opus, Fable and Haiku. It reads data produced by `harness.py` and `hmodel.py`.
 
 ## Reproduce
 
@@ -67,5 +93,6 @@ API responses are cached in `data/cache.sqlite`, so rerunning a finished stage c
 - `src/gate0/market/`: simulated companies, agents and the call auction.
 - `src/gate0/moments.py`, `gate.py`: market outcomes and the advance rule.
 - `registration*.lock`: one lock file for each registration.
+- `analysis/`: unregistered analyses and the dev harness.
 
 Tags `gate0-registered` (v1), `gate0-v2-registered` and `gate0-v3-registered` mark each registered state; v1 and v2 are reproducible only from their tags.

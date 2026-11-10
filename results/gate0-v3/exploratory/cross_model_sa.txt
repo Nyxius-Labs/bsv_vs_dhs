@@ -1,0 +1,5 @@
+claude-fable-5-1_adaptive    rational - neutral -0.04 [-0.25, +0.19] vs +/-0.66  PASS
+claude-haiku-5-5_off         rational - neutral +0.15 [-0.19, +0.48] vs +/-0.02  FAIL
+claude-opus-5-5_adaptive     rational - neutral +0.04 [-0.15, +0.22] vs +/-0.40  PASS
+claude-sonnet-5-5_adaptive   rational - neutral -0.13 [-0.30, +0.05] vs +/-0.34  PASS
+claude-sonnet-5-5_off        rational - neutral -0.07 [-0.30, +0.14] vs +/-0.35  PASS
